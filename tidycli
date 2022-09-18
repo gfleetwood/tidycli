@@ -1,0 +1,72 @@
+#!/usr/bin/Rscript
+
+suppressPackageStartupMessages(library(tidyverse))
+library(glue)
+
+# Get the max number of columns in the output to standard out
+tbl_transform_num_cols = "{cmds[1]} | awk '{{print NF}}' | sort -n | tail -1"
+
+# Takes the max number of columns and pads out any rows with less columns in the process of transforming the input to a csv
+tbl_transform = "{cmds[1]} | awk -v max_num_cols={num_cols} 'BEGIN {{NMAX=max_num_cols; OFS=\",\"}} {{for (i=NF+1; i<=NMAX; i++) $i='NA'; $1=$1; print}}'"
+
+cat("\n\n**tidycli**\n\n")
+
+manual = "
+**help manual**
+
+type 'h' for to bring up this manual\n\n
+
+type 'q' to quit\n\n
+
+use 'x' in your r code to reference the input from bash, ex. seq 1 5 @> map(x, ~ .x+1)\n\n
+
+all bash input parsed with '@>' enters R as a string so keep that in mind when writing code\n\n
+"
+
+cat(manual)
+
+while(TRUE)
+{
+      
+  cat("\n> ")
+  
+  var = readLines("stdin", n = 1)
+  
+  if(var == "") next
+  if(var == "q") break
+  
+  if(var == "h") {
+    cat(manual) 
+    next
+  }
+  
+  cmds = unlist(str_split(var, fixed("@>")))
+  
+  # If there's no R code then only run the bash command.
+  # Still have to account there only being R code hence the tryCatch
+  if(is.na(cmds[2])){
+    
+    result = tryCatch(
+      {
+        num_cols = system(glue(tbl_transform_num_cols), intern = T)
+        bash_cmd = glue(tbl_transform)
+        print(system(bash_cmd, intern = T))
+        },
+    error = function(e) {
+      print(eval(parse(text = paste('function(x)', var))))
+    }
+    )
+    
+  } 
+  # If there is R code then package it into a function and evaluate said function
+  # with the result of the bash command.
+  else {
+    r_code = parse(text = paste('function(x)', cmds[2]))
+    f = eval(r_code)
+    num_cols = system(glue(tbl_transform_num_cols), intern = T)
+    bash_cmd = glue(tbl_transform)
+    result = system(bash_cmd, intern = T)
+    print(f(result))
+  }
+  
+}
